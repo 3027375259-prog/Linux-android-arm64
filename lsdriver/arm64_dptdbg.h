@@ -247,8 +247,21 @@ static void dptdbg_flush_view_translations(void)
     struct mm_struct *mm = READ_ONCE(g_dptdbg_mm);
 
     if (!mm) return;
-    flush_tlb_mm(mm);
-    isb();
+    /*
+     * 不使用 flush_tlb_mm(): 6.6+ 的 arm64 flush_tlb_mm 内联会调用
+     * mmu_notifier_arch_invalidate_secondary_tlbs -> __mmu_notifier_arch_invalidate_secondary_tlbs,
+     * 该符号是 KVM 专用导出(EXPORT_SYMBOL_FOR_KVM), 普通模块链接必然 undefined。
+     * 这里直接展开内核自身使用的全 mm TLBI 序列(等价 5.15 的 flush_tlb_mm 实现)。
+     */
+    {
+        unsigned long asid = __TLBI_VADDR(0, ASID(mm));
+        asm volatile(
+            "dsb ishst\n\t"
+            "tlbi aside1is, %[asid]\n\t"
+            "dsb ish\n\t"
+            "isb\n\t"
+            :: [asid] "r"(asid) : "memory");
+    }
 }
 
 static uint64_t dptdbg_compose_ttbr0(uint64_t template, phys_addr_t pgd_pa, bool clean_view)
