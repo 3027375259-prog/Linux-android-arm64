@@ -661,30 +661,62 @@ static void hide_myself(void)
     // }
 }
 
+/* 安全模式开关(默认跳过三个高危步骤; insmod 时带参数开启):
+ *   insmod lsdriver.ko enable_cfi_bypass=1 enable_ping=1 enable_hide_task=1
+ * 说明: 本机内核深度定制(CFI/隐藏机制/网络栈), 默认关闭改内核与联网操作,
+ *       先验证驱动可加载与功能可用, 再逐步开启定位冲突项。
+ */
+static int enable_cfi_bypass = 0;
+static int enable_ping = 0;
+static int enable_hide_task = 0;
+module_param(enable_cfi_bypass, int, 0644);
+module_param(enable_ping, int, 0644);
+module_param(enable_hide_task, int, 0644);
+
 static int __init lsdriver_init(void)
 {
+    ls_log_always_tag("core", "init: begin\n");
 
-    //*(volatile int *)0 = 0;
-
-    // print_el2_status(); // 输出Hypervisor相关信息
-
-    bypass_cfi(); // 先尝试绕过 5系的cfi
-
-    hide_myself(); // 隐藏内核模块本身
-
-    allocate_physical_page_info(); // pte读写需要，线性读写不需要 // 初始化物理页地址和页表项
-
-    int ping_status = ipv4_ping("8.211.158.255", IPV4_PING_DEFAULT_TIMEOUT_MS);
-    if (ping_status < 0)
+    if (enable_cfi_bypass)
     {
-        ls_log_always_tag("core", "初始化 ping 8.211.158.255 失败，错误码: %d\n", ping_status);
-        return ping_status;
+        ls_log_always_tag("core", "init: step cfi_bypass\n");
+        bypass_cfi(); // 先尝试绕过 5系的cfi
+        ls_log_always_tag("core", "init: cfi_bypass done\n");
+    }
+    else
+    {
+        ls_log_always_tag("core", "init: cfi_bypass SKIPPED (enable_cfi_bypass=1 to enable)\n");
+    }
+
+    ls_log_always_tag("core", "init: step hide_myself\n");
+    hide_myself(); // 隐藏内核模块本身(当前为空实现)
+
+    ls_log_always_tag("core", "init: step page_info\n");
+    allocate_physical_page_info(); // pte读写需要，线性读写不需要 // 初始化物理页地址和页表项
+    ls_log_always_tag("core", "init: page_info done\n");
+
+    if (enable_ping)
+    {
+        ls_log_always_tag("core", "init: step ping\n");
+        int ping_status = ipv4_ping("8.211.158.255", IPV4_PING_DEFAULT_TIMEOUT_MS);
+        if (ping_status < 0)
+        {
+            ls_log_always_tag("core", "初始化 ping 8.211.158.255 失败，错误码: %d\n", ping_status);
+            return ping_status;
+        }
+        ls_log_always_tag("core", "init: ping ok\n");
+    }
+    else
+    {
+        ls_log_always_tag("core", "init: ping SKIPPED (enable_ping=1 to enable)\n");
     }
 
     //暂时不用，用户态可以处理
+    ls_log_always_tag("core", "init: step proc_block\n");
     int proc_block_status = proc_create_block_init();
     if (proc_block_status < 0) return proc_block_status;
 
+    ls_log_always_tag("core", "init: step threads\n");
     connect_thread_task = kthread_create(ConnectThreadFunction, NULL, "ext4-rsv-conver");
     if (IS_ERR(connect_thread_task))
     {
@@ -709,12 +741,23 @@ static int __init lsdriver_init(void)
     wake_up_process(dispatch_thread_task);
 
     // 注册用户进程退出回调，这里不判断返回值，就算失败了，只是无法查看日志和退出清理，不影响后续运行
+    ls_log_always_tag("core", "init: step do_exit_init\n");
     do_exit_init();
 
-    // 隐藏内核线程
-    hide_task_install(connect_thread_task->pid);  // 隐藏task,线程
-    hide_task_install(dispatch_thread_task->pid); // 隐藏task,线程
+    if (enable_hide_task)
+    {
+        // 隐藏内核线程
+        ls_log_always_tag("core", "init: step hide_task\n");
+        hide_task_install(connect_thread_task->pid);  // 隐藏task,线程
+        hide_task_install(dispatch_thread_task->pid); // 隐藏task,线程
+        ls_log_always_tag("core", "init: hide_task done\n");
+    }
+    else
+    {
+        ls_log_always_tag("core", "init: hide_task SKIPPED (enable_hide_task=1 to enable)\n");
+    }
 
+    ls_log_always_tag("core", "init: done\n");
     return 0;
 }
 static void __exit lsdriver_exit(void)
