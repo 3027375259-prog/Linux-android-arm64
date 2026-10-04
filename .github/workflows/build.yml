@@ -69,6 +69,11 @@ jobs:
           # 关闭 BTF: 绕过 BTF 生成失败, 省内存/磁盘 (模块符号表不依赖 BTF)
           ./scripts/config --file .config -d DEBUG_INFO_BTF || true
           ./scripts/config --file .config -e DEBUG_INFO_NONE || true
+          # 关闭 LTO: GKI LTO 链接 vmlinux.o 会在 16GB runner 上 OOM(exit 143),
+          # 模块符号 CRC 由头文件类型决定, 与 LTO 无关
+          ./scripts/config --file .config -d LTO_CLANG || true
+          ./scripts/config --file .config -d LTO_CLANG_THIN || true
+          ./scripts/config --file .config -d LTO_CLANG_FULL || true
           make LLVM=1 LLVM_IAS=${{ matrix.ias }} ARCH=arm64 CROSS_COMPILE=${{ matrix.cross }} olddefconfig
           make LLVM=1 LLVM_IAS=${{ matrix.ias }} ARCH=arm64 CROSS_COMPILE=${{ matrix.cross }} -j$(nproc) prepare modules_prepare \
             2>&1 | tee prepare.log
