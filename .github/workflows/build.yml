@@ -5,6 +5,10 @@ on:
   push:
     branches: [ main, master ]
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build:
     name: Build ${{ matrix.kmi }}
@@ -25,42 +29,73 @@ jobs:
         with:
           path: lsdriver-src
 
+      - name: Cache kernel tree (source + build output)
+        uses: actions/cache@v4
+        with:
+          path: kernel
+          key: kernel-${{ matrix.branch }}-${{ github.sha }}
+          restore-keys: |
+            kernel-${{ matrix.branch }}-
+
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang llvm lld bc bison flex libssl-dev libelf-dev
+          sudo apt-get install -y clang llvm lld bc bison flex \
+            libssl-dev libelf-dev dwarves
 
       - name: Checkout KMI kernel (${{ matrix.kmi }})
         run: |
-          git clone --depth 1 \
-            https://android.googlesource.com/kernel/common \
-            -b ${{ matrix.branch }} \
-            kernel
+          if [ ! -f kernel/Makefile ]; then
+            git clone --depth 1 \
+              https://android.googlesource.com/kernel/common \
+              -b ${{ matrix.branch }} \
+              kernel
+          else
+            echo "kernel cache hit, skip clone"
+          fi
           cd kernel
           git log --oneline -1
 
       - name: Prepare kernel build
         run: |
           cd kernel
-          make LLVM=1 LLVM_IAS=1 defconfig arch/arm64/configs/gki_defconfig || \
-          make LLVM=1 LLVM_IAS=1 gki_defconfig
-          make LLVM=1 LLVM_IAS=1 -j$(nproc) prepare modules_prepare
+          make LLVM=1 LLVM_IAS=1 ARCH=arm64 gki_defconfig
+          # 关闭 rust 相关(部分版本 defconfig 带且 runner 工具链不匹配)
+          ./scripts/config --file .config -d RUST -d RUST_BUILD_ASSERT_ALLOW || true
+          make LLVM=1 LLVM_IAS=1 ARCH=arm64 olddefconfig
+          make LLVM=1 LLVM_IAS=1 ARCH=arm64 -j$(nproc) prepare modules_prepare \
+            2>&1 | tee prepare.log
 
       - name: Build full kernel (for Module.symvers)
         run: |
           cd kernel
-          make LLVM=1 LLVM_IAS=1 -j$(nproc) all
+          make LLVM=1 LLVM_IAS=1 ARCH=arm64 -j$(nproc) all 2>&1 | tee build.log
 
       - name: Build lsdriver.ko (DPT enabled)
         run: |
           cd kernel
-          make LLVM=1 LLVM_IAS=1 -j$(nproc) \
+          make LLVM=1 LLVM_IAS=1 ARCH=arm64 -j$(nproc) \
             M=${{ github.workspace }}/lsdriver-src/lsdriver \
-            modules
+            modules 2>&1 | tee mod.log
+
+      - name: Collect errors to summary (on failure)
+        if: failure()
+        run: |
+          {
+            echo "## ${{ matrix.kmi }} build failure"
+            for f in prepare.log build.log mod.log; do
+              if [ -f "kernel/$f" ]; then
+                echo "=== $f (errors) ==="
+                grep -nE "error:|Error [0-9]|undefined reference|No rule to make|fatal" \
+                  "kernel/$f" | tail -40
+                echo "--- tail ---"
+                tail -25 "kernel/$f"
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY" || true
 
       - name: Strip
         run: |
-          KMI="${{ matrix.kmi }}"
           KO=$(find kernel -name "lsdriver.ko" | head -1)
           if [ "${{ matrix.no_strip }}" = "true" ]; then
             echo "no-strip KMI, keeping symbols"
@@ -68,8 +103,7 @@ jobs:
             llvm-strip --strip-debug "$KO" || strip --strip-debug "$KO"
           fi
           mkdir -p out
-          cp "$KO" "out/lsdriver-${KMI}.ko"
-          cp "${KO%.ko}.o" "out/" 2>/dev/null || true
+          cp "$KO" "out/lsdriver-${{ matrix.kmi }}.ko"
           ls -la out/
 
       - name: Upload artifact
