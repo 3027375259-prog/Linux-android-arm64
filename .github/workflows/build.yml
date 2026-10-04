@@ -1,0 +1,79 @@
+name: Build lsdriver (DPT enabled)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    name: Build ${{ matrix.kmi }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { kmi: android12-5.10, branch: android12-5.10, no_strip: false }
+          - { kmi: android13-5.15, branch: android13-5.15, no_strip: false }
+          - { kmi: android14-6.1,  branch: android14-6.1,  no_strip: false }
+          - { kmi: android15-6.6,  branch: android15-6.6,  no_strip: true }
+          - { kmi: android16-6.12, branch: android16-6.12, no_strip: true }
+
+    steps:
+      - name: Checkout driver
+        uses: actions/checkout@v4
+        with:
+          path: lsdriver-src
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm lld bc bison flex libssl-dev libelf-dev
+
+      - name: Checkout KMI kernel (${{ matrix.kmi }})
+        run: |
+          git clone --depth 1 \
+            https://android.googlesource.com/kernel/common \
+            -b ${{ matrix.branch }} \
+            kernel
+          cd kernel
+          git log --oneline -1
+
+      - name: Prepare kernel build
+        run: |
+          cd kernel
+          make LLVM=1 LLVM_IAS=1 defconfig arch/arm64/configs/gki_defconfig || \
+          make LLVM=1 LLVM_IAS=1 gki_defconfig
+          make LLVM=1 LLVM_IAS=1 -j$(nproc) prepare modules_prepare
+
+      - name: Build full kernel (for Module.symvers)
+        run: |
+          cd kernel
+          make LLVM=1 LLVM_IAS=1 -j$(nproc) all
+
+      - name: Build lsdriver.ko (DPT enabled)
+        run: |
+          cd kernel
+          make LLVM=1 LLVM_IAS=1 -j$(nproc) \
+            M=${{ github.workspace }}/lsdriver-src/lsdriver \
+            modules
+
+      - name: Strip
+        run: |
+          KMI="${{ matrix.kmi }}"
+          KO=$(find kernel -name "lsdriver.ko" | head -1)
+          if [ "${{ matrix.no_strip }}" = "true" ]; then
+            echo "no-strip KMI, keeping symbols"
+          else
+            llvm-strip --strip-debug "$KO" || strip --strip-debug "$KO"
+          fi
+          mkdir -p out
+          cp "$KO" "out/lsdriver-${KMI}.ko"
+          cp "${KO%.ko}.o" "out/" 2>/dev/null || true
+          ls -la out/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lsdriver-${{ matrix.kmi }}
+          path: out/
