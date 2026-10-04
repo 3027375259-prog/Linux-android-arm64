@@ -32,8 +32,8 @@ jobs:
         with:
           path: lsdriver-src
 
-      - name: Cache kernel tree (source + build output)
-        uses: actions/cache@v4
+      - name: Restore kernel cache
+        uses: actions/cache/restore@v4
         with:
           path: kernel
           key: kernel-${{ matrix.branch }}-${{ github.sha }}
@@ -118,6 +118,13 @@ jobs:
           mkdir -p out
           cp "$KO" "out/lsdriver-${{ matrix.kmi }}.ko"
           ls -la out/
+
+      - name: Save kernel cache (always, so failed runs reuse it)
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: kernel
+          key: kernel-${{ matrix.branch }}-${{ github.sha }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
