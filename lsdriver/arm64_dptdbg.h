@@ -67,6 +67,26 @@ static struct page *g_dptdbg_shadow_pgd_page;
 static pgd_t *g_dptdbg_shadow_pgd;
 static LIST_HEAD(g_dptdbg_table_pages);
 static struct mmu_notifier g_dptdbg_mmu_notifier;
+
+/*
+ * 部分厂商内核未导出 mmu_notifier 接口(CONFIG_MMU_NOTIFIER=n),
+ * 直接引用会让整个模块 insmod 失败(Unknown symbol)。
+ * 这里改为运行时 kallsyms 动态解析: 找不到符号时仅禁用 DPT 功能,
+ * 驱动其余功能(PTE/BRP/STEP)不受影响。
+ */
+static int (*dptdbg_mmnr_register_p)(struct mmu_notifier *nm, struct mm_struct *mm);
+static void (*dptdbg_mmnr_unregister_p)(struct mmu_notifier *nm);
+static bool dptdbg_mmnr_resolved;
+
+static void dptdbg_resolve_mmnr_symbols(void)
+{
+    if (dptdbg_mmnr_resolved) return;
+    dptdbg_mmnr_register_p = (void *)generic_kallsyms_lookup_name("mmu_notifier_register");
+    dptdbg_mmnr_unregister_p = (void *)generic_kallsyms_lookup_name("mmu_notifier_unregister");
+    dptdbg_mmnr_resolved = true;
+    ls_log_always_tag("dptdbg", "mmu_notifier symbols: register=%p unregister=%p\n",
+                      (void *)dptdbg_mmnr_register_p, (void *)dptdbg_mmnr_unregister_p);
+}
 static DEFINE_SPINLOCK(g_dptdbg_lock);
 static DEFINE_MUTEX(g_dptdbg_lifecycle_lock);
 static struct work_struct g_dptdbg_abort_work;
@@ -691,7 +711,7 @@ static int dptdbg_release_state(void)
 
     if (g_dptdbg_notifier_registered)
     {
-        mmu_notifier_unregister(&g_dptdbg_mmu_notifier, g_dptdbg_mm);
+        dptdbg_mmnr_unregister_p(&g_dptdbg_mmu_notifier, g_dptdbg_mm);
         g_dptdbg_notifier_registered = false;
     }
 
@@ -751,6 +771,12 @@ static inline void dptdbg_stop_monitor(void)
 
 static int dptdbg_start_monitor(struct break_point *info)
 {
+    dptdbg_resolve_mmnr_symbols();
+    if (!dptdbg_mmnr_register_p || !dptdbg_mmnr_unregister_p)
+    {
+        ls_log_always_tag("dptdbg", "mmu_notifier not available on this kernel, DPT disabled\n");
+        return -EOPNOTSUPP;
+    }
     /*
      * 启动 DPTDBG 的顺序必须保持为：
      *
@@ -831,7 +857,7 @@ static int dptdbg_start_monitor(struct break_point *info)
 
     g_dptdbg_mmu_notifier.ops = &g_dptdbg_mmu_notifier_ops;
     g_dptdbg_notifier_registered = true;
-    status = mmu_notifier_register(&g_dptdbg_mmu_notifier, mm);
+    status = dptdbg_mmnr_register_p(&g_dptdbg_mmu_notifier, mm);
     if (status)
     {
         g_dptdbg_notifier_registered = false;
