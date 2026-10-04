@@ -75,7 +75,7 @@ static struct mmu_notifier g_dptdbg_mmu_notifier;
  * 驱动其余功能(PTE/BRP/STEP)不受影响。
  */
 static int (*dptdbg_mmnr_register_p)(struct mmu_notifier *nm, struct mm_struct *mm);
-static void (*dptdbg_mmnr_unregister_p)(struct mmu_notifier *nm);
+static void (*dptdbg_mmnr_unregister_p)(struct mmu_notifier *nm, struct mm_struct *mm);
 static bool dptdbg_mmnr_resolved;
 
 static void dptdbg_resolve_mmnr_symbols(void)
