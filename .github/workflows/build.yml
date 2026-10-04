@@ -47,6 +47,13 @@ jobs:
             libssl-dev libelf-dev dwarves libdw-dev libdwarf-dev elfutils \
             gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
 
+      - name: Restore clang cache
+        if: matrix.clang != ''
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/clang-matched
+          key: clang-r450784e-mirror-v1
+
       - name: Setup matched AOSP clang (${{ matrix.clang }})
         if: matrix.clang != ''
         run: |
@@ -77,15 +84,17 @@ jobs:
       - name: Checkout KMI kernel (${{ matrix.kmi }})
         run: |
           if [ ! -f kernel/Makefile ]; then
+            rm -rf kernel
             # 优先 GitHub 镜像(网络快); googlesource 作后备
             git clone --depth 2000 \
               https://github.com/aosp-mirror/kernel_common \
               -b ${{ matrix.branch }} \
               kernel 2>/dev/null || \
-            git clone --depth 2000 \
-              https://android.googlesource.com/kernel/common \
-              -b ${{ matrix.branch }} \
-              kernel
+            ( rm -rf kernel && \
+              git clone --depth 2000 \
+                https://android.googlesource.com/kernel/common \
+                -b ${{ matrix.branch }} \
+                kernel )
           else
             echo "kernel cache hit, skip clone"
           fi
@@ -188,8 +197,16 @@ jobs:
           cp "$KO" "out/lsdriver-${{ matrix.kmi }}.ko"
           ls -la out/
 
+      - name: Save clang cache
+        if: matrix.clang != ''
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ~/clang-matched
+          key: clang-r450784e-mirror-v1
+
       - name: Save kernel cache (always, so failed runs reuse it)
-        if: always()
+        if: always() && hashFiles('kernel/Makefile') != ''
         uses: actions/cache/save@v4
         with:
           path: kernel
