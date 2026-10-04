@@ -71,7 +71,12 @@ jobs:
       - name: Checkout KMI kernel (${{ matrix.kmi }})
         run: |
           if [ ! -f kernel/Makefile ]; then
-            git clone --depth 3000 \
+            # 优先 GitHub 镜像(网络快); googlesource 作后备
+            git clone --depth 2000 \
+              https://github.com/aosp-mirror/kernel_common \
+              -b ${{ matrix.branch }} \
+              kernel 2>/dev/null || \
+            git clone --depth 2000 \
               https://android.googlesource.com/kernel/common \
               -b ${{ matrix.branch }} \
               kernel
@@ -80,14 +85,14 @@ jobs:
           fi
           cd kernel
           if [ "${{ matrix.kmi }}" = "android13-5.15" ]; then
-            C=$(git log --format="%H %s" | grep -m1 "5.15.167" | cut -d' ' -f1)
+            C=$(git log --format=%H --grep="5.15.167" -1 2>/dev/null || true)
             if [ -n "$C" ]; then
-              git checkout "$C"
-              echo "checked out 5.15.167: $C"
+              git checkout "$C" 2>/dev/null || true
+              echo "checked out: $C"
             else
-              echo "5.15.167 commit not found in depth, using branch HEAD"
+              echo "5.15.167 not in depth, using branch HEAD"
             fi
-            grep -m1 -E "SUBLEVEL" Makefile || true
+            grep -m1 -E "SUBLEVEL|PATCHLEVEL" Makefile || true
           fi
           git log --oneline -1
 
