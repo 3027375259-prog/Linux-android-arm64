@@ -66,6 +66,9 @@ jobs:
           make LLVM=1 LLVM_IAS=${{ matrix.ias }} ARCH=arm64 CROSS_COMPILE=${{ matrix.cross }} gki_defconfig
           # 关闭 rust 相关(部分版本 defconfig 带且 runner 工具链不匹配)
           ./scripts/config --file .config -d RUST -d RUST_BUILD_ASSERT_ALLOW || true
+          # 关闭 BTF: 绕过 BTF 生成失败, 省内存/磁盘 (模块符号表不依赖 BTF)
+          ./scripts/config --file .config -d DEBUG_INFO_BTF || true
+          ./scripts/config --file .config -e DEBUG_INFO_NONE || true
           make LLVM=1 LLVM_IAS=${{ matrix.ias }} ARCH=arm64 CROSS_COMPILE=${{ matrix.cross }} olddefconfig
           make LLVM=1 LLVM_IAS=${{ matrix.ias }} ARCH=arm64 CROSS_COMPILE=${{ matrix.cross }} -j$(nproc) prepare modules_prepare \
             2>&1 | tee prepare.log
@@ -90,10 +93,10 @@ jobs:
             for f in prepare.log build.log mod.log; do
               if [ -f "kernel/$f" ]; then
                 echo "=== $f (errors) ==="
-                grep -nE "error:|Error [0-9]|undefined reference|No rule to make|fatal" \
-                  "kernel/$f" | tail -40
+                grep -nE "error:|Error [0-9]|undefined reference|No rule to make|fatal|\*\*\*|FAILED:" \
+                  "kernel/$f" | tail -50
                 echo "--- tail ---"
-                tail -25 "kernel/$f"
+                tail -60 "kernel/$f"
               fi
             done
           } > /tmp/summary.md || true
@@ -110,7 +113,11 @@ jobs:
 
       - name: Strip
         run: |
-          KO=$(find kernel -name "lsdriver.ko" | head -1)
+          KO=$(find "${{ github.workspace }}/lsdriver-src" -name "lsdriver.ko" | head -1)
+          if [ -z "$KO" ]; then
+            echo "lsdriver.ko not found, searching whole workspace"
+            find "${{ github.workspace }}" -name "lsdriver.ko" | head -5
+          fi
           if [ "${{ matrix.no_strip }}" = "true" ]; then
             echo "no-strip KMI, keeping symbols"
           else
