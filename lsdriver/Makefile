@@ -22,6 +22,9 @@ $(obj)/lsdriver_main.o: $(src)/lsdriver.c FORCE
 	$(call if_changed_dep,cc_o_c)
 
 #O3优化:启用更积极的内联、循环变换、指令调度和常量传播。
+# 外部模块(M=)编译时显式加入源目录, 保证 "xxx.h" 引号包含在依赖追踪下可解析
+ccflags-y += -I$(src) -I$(srctree)/$(src)
+
 ccflags-y += -O3
 
 # Full LTO：让主驱动与 decoder/encoder 在统一模块视图中进行跨文件内联和常量传播。

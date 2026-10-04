@@ -20,11 +20,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { kmi: android12-5.10, branch: android12-5.10, no_strip: false }
-          - { kmi: android13-5.15, branch: android13-5.15, no_strip: false }
-          - { kmi: android14-6.1,  branch: android14-6.1,  no_strip: false }
-          - { kmi: android15-6.6,  branch: android15-6.6,  no_strip: true }
-          - { kmi: android16-6.12, branch: android16-6.12, no_strip: true }
+          - { kmi: android12-5.10, branch: android12-5.10, no_strip: false, ias: 0 }
+          - { kmi: android13-5.15, branch: android13-5.15, no_strip: false, ias: 1 }
+          - { kmi: android14-6.1,  branch: android14-6.1,  no_strip: false, ias: 1 }
+          - { kmi: android15-6.6,  branch: android15-6.6,  no_strip: true, ias: 1 }
+          - { kmi: android16-6.12, branch: android16-6.12, no_strip: true, ias: 1 }
 
     steps:
       - name: Checkout driver
@@ -44,7 +44,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang llvm lld bc bison flex \
-            libssl-dev libelf-dev dwarves
+            libssl-dev libelf-dev dwarves libdw-dev libdwarf-dev elfutils
 
       - name: Checkout KMI kernel (${{ matrix.kmi }})
         run: |
@@ -62,22 +62,22 @@ jobs:
       - name: Prepare kernel build
         run: |
           cd kernel
-          make LLVM=1 LLVM_IAS=1 ARCH=arm64 gki_defconfig
+          make LLVM=1 LLVM_IAS=${{ matrix.ias }} ARCH=arm64 gki_defconfig
           # 关闭 rust 相关(部分版本 defconfig 带且 runner 工具链不匹配)
           ./scripts/config --file .config -d RUST -d RUST_BUILD_ASSERT_ALLOW || true
-          make LLVM=1 LLVM_IAS=1 ARCH=arm64 olddefconfig
-          make LLVM=1 LLVM_IAS=1 ARCH=arm64 -j$(nproc) prepare modules_prepare \
+          make LLVM=1 LLVM_IAS=${{ matrix.ias }} ARCH=arm64 olddefconfig
+          make LLVM=1 LLVM_IAS=${{ matrix.ias }} ARCH=arm64 -j$(nproc) prepare modules_prepare \
             2>&1 | tee prepare.log
 
       - name: Build full kernel (for Module.symvers)
         run: |
           cd kernel
-          make LLVM=1 LLVM_IAS=1 ARCH=arm64 -j$(nproc) all 2>&1 | tee build.log
+          make LLVM=1 LLVM_IAS=${{ matrix.ias }} ARCH=arm64 -j$(nproc) all 2>&1 | tee build.log
 
       - name: Build lsdriver.ko (DPT enabled)
         run: |
           cd kernel
-          make LLVM=1 LLVM_IAS=1 ARCH=arm64 -j$(nproc) \
+          make LLVM=1 LLVM_IAS=${{ matrix.ias }} ARCH=arm64 -j$(nproc) \
             M=${{ github.workspace }}/lsdriver-src/lsdriver \
             modules 2>&1 | tee mod.log
 
