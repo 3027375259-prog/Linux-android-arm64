@@ -20,11 +20,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { kmi: android12-5.10, branch: android12-5.10, no_strip: false, ias: 0, cross: aarch64-linux-gnu- }
-          - { kmi: android13-5.15, branch: android13-5.15, no_strip: false, ias: 1, cross: "" }
-          - { kmi: android14-6.1,  branch: android14-6.1,  no_strip: false, ias: 1, cross: "" }
-          - { kmi: android15-6.6,  branch: android15-6.6,  no_strip: true, ias: 1, cross: "" }
-          - { kmi: android16-6.12, branch: android16-6.12, no_strip: true, ias: 1, cross: "" }
+          - { kmi: android12-5.10, branch: android12-5.10, no_strip: false, ias: 0, cross: aarch64-linux-gnu-, clang: "" }
+          - { kmi: android13-5.15, branch: android13-5.15-2024-11, no_strip: false, ias: 1, cross: "", clang: r450784e }
+          - { kmi: android14-6.1,  branch: android14-6.1,  no_strip: false, ias: 1, cross: "", clang: "" }
+          - { kmi: android15-6.6,  branch: android15-6.6,  no_strip: true, ias: 1, cross: "", clang: "" }
+          - { kmi: android16-6.12, branch: android16-6.12, no_strip: true, ias: 1, cross: "", clang: "" }
 
     steps:
       - name: Checkout driver
@@ -47,10 +47,26 @@ jobs:
             libssl-dev libelf-dev dwarves libdw-dev libdwarf-dev elfutils \
             gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
 
+      - name: Setup matched AOSP clang (${{ matrix.clang }})
+        if: matrix.clang != ''
+        run: |
+          if [ ! -d "$HOME/prebuilts-clang/${{ matrix.clang }}" ]; then
+            git clone --depth 1 \
+              https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
+              "$HOME/prebuilts-clang" || true
+          fi
+          CLANG_BIN="$HOME/prebuilts-clang/${{ matrix.clang }}/bin"
+          if [ -x "$CLANG_BIN/clang" ]; then
+            "$CLANG_BIN/clang" --version | head -2
+            echo "MATCHED_CLANG_BIN=$CLANG_BIN" >> "$GITHUB_ENV"
+          else
+            echo "!! matched clang not available, falling back to system clang"
+          fi
+
       - name: Checkout KMI kernel (${{ matrix.kmi }})
         run: |
           if [ ! -f kernel/Makefile ]; then
-            git clone --depth 1 \
+            git clone --depth 3000 \
               https://android.googlesource.com/kernel/common \
               -b ${{ matrix.branch }} \
               kernel
@@ -58,12 +74,22 @@ jobs:
             echo "kernel cache hit, skip clone"
           fi
           cd kernel
+          if [ "${{ matrix.kmi }}" = "android13-5.15" ]; then
+            C=$(git log --format="%H %s" | grep -m1 "5.15.167" | cut -d' ' -f1)
+            if [ -n "$C" ]; then
+              git checkout "$C"
+              echo "checked out 5.15.167: $C"
+            else
+              echo "5.15.167 commit not found in depth, using branch HEAD"
+            fi
+            grep -m1 -E "SUBLEVEL" Makefile || true
+          fi
           git log --oneline -1
 
       - name: Prepare kernel build
         run: |
           cd kernel
-          make LLVM=1 LLVM_IAS=${{ matrix.ias }} ARCH=arm64 CROSS_COMPILE=${{ matrix.cross }} gki_defconfig
+          PATH="$MATCHED_CLANG_BIN:$PATH" make LLVM=1 LLVM_IAS=${{ matrix.ias }} ARCH=arm64 CROSS_COMPILE=${{ matrix.cross }} gki_defconfig
           # 关闭 rust 相关(部分版本 defconfig 带且 runner 工具链不匹配)
           ./scripts/config --file .config -d RUST -d RUST_BUILD_ASSERT_ALLOW || true
           # 关闭 BTF: 绕过 BTF 生成失败, 省内存/磁盘 (模块符号表不依赖 BTF)
@@ -74,19 +100,19 @@ jobs:
           ./scripts/config --file .config -d LTO_CLANG || true
           ./scripts/config --file .config -d LTO_CLANG_THIN || true
           ./scripts/config --file .config -d LTO_CLANG_FULL || true
-          make LLVM=1 LLVM_IAS=${{ matrix.ias }} ARCH=arm64 CROSS_COMPILE=${{ matrix.cross }} olddefconfig
-          make LLVM=1 LLVM_IAS=${{ matrix.ias }} ARCH=arm64 CROSS_COMPILE=${{ matrix.cross }} -j$(nproc) prepare modules_prepare \
+          PATH="$MATCHED_CLANG_BIN:$PATH" make LLVM=1 LLVM_IAS=${{ matrix.ias }} ARCH=arm64 CROSS_COMPILE=${{ matrix.cross }} olddefconfig
+          PATH="$MATCHED_CLANG_BIN:$PATH" make LLVM=1 LLVM_IAS=${{ matrix.ias }} ARCH=arm64 CROSS_COMPILE=${{ matrix.cross }} -j$(nproc) prepare modules_prepare \
             2>&1 | tee prepare.log
 
       - name: Build full kernel (for Module.symvers)
         run: |
           cd kernel
-          make LLVM=1 LLVM_IAS=${{ matrix.ias }} ARCH=arm64 CROSS_COMPILE=${{ matrix.cross }} -j$(nproc) all 2>&1 | tee build.log
+          PATH="$MATCHED_CLANG_BIN:$PATH" make LLVM=1 LLVM_IAS=${{ matrix.ias }} ARCH=arm64 CROSS_COMPILE=${{ matrix.cross }} -j$(nproc) all 2>&1 | tee build.log
 
       - name: Build lsdriver.ko (DPT enabled)
         run: |
           cd kernel
-          make LLVM=1 LLVM_IAS=${{ matrix.ias }} ARCH=arm64 CROSS_COMPILE=${{ matrix.cross }} -j$(nproc) \
+          PATH="$MATCHED_CLANG_BIN:$PATH" make LLVM=1 LLVM_IAS=${{ matrix.ias }} ARCH=arm64 CROSS_COMPILE=${{ matrix.cross }} -j$(nproc) \
             M=${{ github.workspace }}/lsdriver-src/lsdriver \
             modules 2>&1 | tee mod.log
 
