@@ -50,22 +50,28 @@ jobs:
       - name: Setup matched AOSP clang (${{ matrix.clang }})
         if: matrix.clang != ''
         run: |
-          if [ ! -d "$HOME/prebuilts-clang/${{ matrix.clang }}" ]; then
-            # 先试 sparse 部分克隆(省流量), 失败回退全量
+          DEST="$HOME/clang-matched"
+          if [ ! -x "$DEST/bin/clang" ]; then
+            rm -rf "$DEST"
+            echo "== cloning matched clang r450784e (build 8508608) from GitHub mirror =="
+            git clone --depth 1 \
+              https://github.com/LeafOS-experimental/android_prebuilts_clang_kernel_linux-x86_clang-r450784e \
+              "$DEST" || echo "!! github mirror clone failed"
+          fi
+          if [ ! -x "$DEST/bin/clang" ]; then
+            echo "== github mirror unavailable, trying AOSP googlesource =="
             git clone --depth 1 --filter=blob:none --sparse \
               https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
-              "$HOME/prebuilts-clang" 2>/dev/null || \
-            git clone --depth 1 \
-              https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
-              "$HOME/prebuilts-clang" || true
+              "$HOME/prebuilts-clang" 2>/dev/null || true
             ( cd "$HOME/prebuilts-clang" && git sparse-checkout set ${{ matrix.clang }} 2>/dev/null ) || true
+            DEST="$HOME/prebuilts-clang/${{ matrix.clang }}"
           fi
-          CLANG_BIN="$HOME/prebuilts-clang/${{ matrix.clang }}/bin"
-          if [ -x "$CLANG_BIN/clang" ]; then
-            "$CLANG_BIN/clang" --version | head -2
-            echo "MATCHED_CLANG_BIN=$CLANG_BIN" >> "$GITHUB_ENV"
+          if [ -x "$DEST/bin/clang" ]; then
+            echo "== matched clang ready =="
+            "$DEST/bin/clang" --version | head -2
+            echo "MATCHED_CLANG_BIN=$DEST/bin" >> "$GITHUB_ENV"
           else
-            echo "!! matched clang not available, falling back to system clang"
+            echo "!!!!!!!!!! MATCHED CLANG NOT AVAILABLE - FALLING BACK TO SYSTEM CLANG !!!!!!!!!!"
           fi
 
       - name: Checkout KMI kernel (${{ matrix.kmi }})
