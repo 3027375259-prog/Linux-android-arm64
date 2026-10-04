@@ -1,7 +1,7 @@
 
 
 obj-m += lsdriver.o
-obj-m += helloworld_test.o
+# obj-m += helloworld_test.o   # 需独立 Makefile(全局 -flto 会污染普通模块), 暂不编译
 lsdriver-y := lsdriver_main.o \
 			  arm64_encode/arm64_encode.o \
 			  arm64_decode/arm64_decode.o \
