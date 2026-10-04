@@ -5,6 +5,9 @@ on:
   push:
     branches: [ main, master ]
 
+permissions:
+  contents: write
+
 defaults:
   run:
     shell: bash
@@ -78,7 +81,7 @@ jobs:
             M=${{ github.workspace }}/lsdriver-src/lsdriver \
             modules 2>&1 | tee mod.log
 
-      - name: Collect errors to summary (on failure)
+      - name: Collect errors to summary + errors branch (on failure)
         if: failure()
         run: |
           {
@@ -92,7 +95,17 @@ jobs:
                 tail -25 "kernel/$f"
               fi
             done
-          } >> "$GITHUB_STEP_SUMMARY" || true
+          } > /tmp/summary.md || true
+          cat /tmp/summary.md >> "$GITHUB_STEP_SUMMARY" || true
+          cd "${{ github.workspace }}/lsdriver-src"
+          git config user.name "ci-bot"
+          git config user.email "ci@localhost"
+          git checkout --orphan "errors/${{ matrix.kmi }}" 2>/dev/null || true
+          git rm -rf . 2>/dev/null || true
+          cp /tmp/summary.md ./summary.md
+          git add summary.md
+          git commit -m "build errors ${{ matrix.kmi }}" || true
+          git push origin "errors/${{ matrix.kmi }}" || true
 
       - name: Strip
         run: |
