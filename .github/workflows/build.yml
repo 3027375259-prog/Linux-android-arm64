@@ -111,6 +111,20 @@ jobs:
           git commit -m "build errors ${{ matrix.kmi }}" || true
           git push --force origin "errors/${{ matrix.kmi }}" 2>&1 | tail -2 || true
 
+      - name: Diagnose undefined symbols (on failure)
+        if: failure()
+        run: |
+          echo "=== undefined symbol owners ==="
+          for o in $(find "$GITHUB_WORKSPACE/lsdriver-src" -name "*.o" 2>/dev/null); do
+            out=$(llvm-nm -u "$o" 2>/dev/null | grep -E "sme_|mmu_notifier|arch_invalidate")
+            if [ -n "$out" ]; then
+              echo "### $o"
+              echo "$out"
+            fi
+          done
+          echo "=== full undefined list of lsdriver_main.o ==="
+          llvm-nm -u "$GITHUB_WORKSPACE/lsdriver-src/lsdriver/lsdriver_main.o" 2>/dev/null | head -50
+
       - name: Strip
         run: |
           KO=$(find "${{ github.workspace }}/lsdriver-src" -name "lsdriver.ko" | head -1)
