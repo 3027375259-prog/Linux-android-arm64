@@ -51,9 +51,14 @@ jobs:
         if: matrix.clang != ''
         run: |
           if [ ! -d "$HOME/prebuilts-clang/${{ matrix.clang }}" ]; then
+            # 先试 sparse 部分克隆(省流量), 失败回退全量
+            git clone --depth 1 --filter=blob:none --sparse \
+              https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
+              "$HOME/prebuilts-clang" 2>/dev/null || \
             git clone --depth 1 \
               https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
               "$HOME/prebuilts-clang" || true
+            ( cd "$HOME/prebuilts-clang" && git sparse-checkout set ${{ matrix.clang }} 2>/dev/null ) || true
           fi
           CLANG_BIN="$HOME/prebuilts-clang/${{ matrix.clang }}/bin"
           if [ -x "$CLANG_BIN/clang" ]; then
