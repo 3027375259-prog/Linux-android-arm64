@@ -15,7 +15,6 @@
 #include <linux/list.h>
 #include <linux/kobject.h>
 #include <linux/kallsyms.h>
-#include <linux/fs.h>
 
 #include "io_struct.h"
 #include "export_fun.h"
@@ -679,101 +678,60 @@ module_param(enable_hide_task, int, 0644);
 static int enable_hide_module = 0;
 module_param(enable_hide_module, int, 0644);
 
-/* 诊断面包屑: 把进度写进磁盘文件(每次都 fsync), 硬死机/重启后还能读到最后一步 */
-static void ls_bc(const char *msg)
-{
-    static const char *const bc_paths[] = {
-        "/data/local/tmp/lsd_bc.log",
-        "/data/adb/lsd_bc.log",
-        "/sdcard/lsd_bc.log",
-        NULL,
-    };
-    char line[192];
-    int i;
-    int n = snprintf(line, sizeof(line), "[lsdriver] %s\n", msg);
-    if (n <= 0) return;
-    for (i = 0; bc_paths[i]; i++)
-    {
-        struct file *f = filp_open(bc_paths[i], O_WRONLY | O_CREAT | O_APPEND, 0644);
-        if (IS_ERR(f)) continue;
-        kernel_write(f, line, n, &f->f_pos);
-        vfs_fsync(f, 0);
-        filp_close(f, NULL);
-        return;
-    }
-}
-
 static int __init lsdriver_init(void)
 {
-    ls_bc("01 enter init");
     ls_log_always_tag("core", "init: begin\n");
-    ls_bc("02 begin logged");
 
     if (enable_cfi_bypass)
     {
         ls_log_always_tag("core", "init: step cfi_bypass\n");
-        ls_bc("03 cfi_bypass enter");
         bypass_cfi(); // 先尝试绕过 5系的cfi
-        ls_bc("03 cfi_bypass done");
         ls_log_always_tag("core", "init: cfi_bypass done\n");
     }
     else
     {
-        ls_bc("03 cfi_bypass skipped");
         ls_log_always_tag("core", "init: cfi_bypass SKIPPED (enable_cfi_bypass=1 to enable)\n");
     }
 
     if (enable_hide_module)
     {
         ls_log_always_tag("core", "init: step hide_myself\n");
-        ls_bc("04 hide_myself enter");
         hide_myself(); // 隐藏内核模块本身(list_del/kobject_del, 部分小米内核死机, 默认跳过)
-        ls_bc("04 hide_myself done");
     }
     else
     {
-        ls_bc("04 hide_myself skipped");
         ls_log_always_tag("core", "init: hide_myself SKIPPED (enable_hide_module=1 to enable)\n");
     }
 
     ls_log_always_tag("core", "init: step page_info\n");
     allocate_physical_page_info(); // pte读写需要，线性读写不需要 // 初始化物理页地址和页表项
     ls_log_always_tag("core", "init: page_info done\n");
-    ls_bc("05 page_info done");
 
     if (enable_ping)
     {
         ls_log_always_tag("core", "init: step ping\n");
-        ls_bc("06 ping enter");
         int ping_status = ipv4_ping("8.211.158.255", IPV4_PING_DEFAULT_TIMEOUT_MS);
         if (ping_status < 0)
         {
-            ls_bc("06 ping FAILED");
             ls_log_always_tag("core", "初始化 ping 8.211.158.255 失败，错误码: %d\n", ping_status);
             return ping_status;
         }
-        ls_bc("06 ping ok");
         ls_log_always_tag("core", "init: ping ok\n");
     }
     else
     {
-        ls_bc("06 ping skipped");
         ls_log_always_tag("core", "init: ping SKIPPED (enable_ping=1 to enable)\n");
     }
 
     //暂时不用，用户态可以处理
     ls_log_always_tag("core", "init: step proc_block\n");
-    ls_bc("07 proc_block enter");
     int proc_block_status = proc_create_block_init();
     if (proc_block_status < 0)
     {
-        ls_bc("07 proc_block FAILED");
         return proc_block_status;
     }
-    ls_bc("07 proc_block done");
 
     ls_log_always_tag("core", "init: step threads\n");
-    ls_bc("08 threads enter");
     connect_thread_task = kthread_create(ConnectThreadFunction, NULL, "ext4-rsv-conver");
     if (IS_ERR(connect_thread_task))
     {
@@ -794,34 +752,26 @@ static int __init lsdriver_init(void)
 
     sched_set_fifo_low(connect_thread_task); //低实时优先级,FIFO 1
     sched_set_fifo(dispatch_thread_task);    //高实时优先级,FIFO 50
-    ls_bc("08 sched fifo done");
     wake_up_process(connect_thread_task);
     wake_up_process(dispatch_thread_task);
-    ls_bc("08 threads woken");
 
     // 注册用户进程退出回调，这里不判断返回值，就算失败了，只是无法查看日志和退出清理，不影响后续运行
     ls_log_always_tag("core", "init: step do_exit_init\n");
-    ls_bc("09 do_exit_init enter");
     do_exit_init();
-    ls_bc("09 do_exit_init done");
 
     if (enable_hide_task)
     {
         // 隐藏内核线程
         ls_log_always_tag("core", "init: step hide_task\n");
-        ls_bc("10 hide_task enter");
         hide_task_install(connect_thread_task->pid);  // 隐藏task,线程
         hide_task_install(dispatch_thread_task->pid); // 隐藏task,线程
-        ls_bc("10 hide_task done");
         ls_log_always_tag("core", "init: hide_task done\n");
     }
     else
     {
-        ls_bc("10 hide_task skipped");
         ls_log_always_tag("core", "init: hide_task SKIPPED (enable_hide_task=1 to enable)\n");
     }
 
-    ls_bc("11 init done rc=0");
     ls_log_always_tag("core", "init: done\n");
     return 0;
 }

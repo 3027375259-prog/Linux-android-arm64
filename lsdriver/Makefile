@@ -1,7 +1,10 @@
 
 
 obj-m += lsdriver.o
-obj-m += helloworld_test.o     # 最小加载测试模块(与 lsdriver 同款 CFI/LTO 配方, 用于定位加载器问题)
+# hello 最小加载测试模块: 仅 5.15 目标编译(其它 KMI 的 modpost/扩展modversions 有兼容问题), CI 对非 5.15 传 LS_SKIP_HELLO=1
+ifneq ($(LS_SKIP_HELLO),1)
+obj-m += helloworld_test.o
+endif
 lsdriver-y := lsdriver_main.o \
 			  arm64_encode/arm64_encode.o \
 			  arm64_decode/arm64_decode.o \

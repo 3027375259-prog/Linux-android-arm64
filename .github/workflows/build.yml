@@ -136,11 +136,22 @@ jobs:
         run: |
           cd kernel
           # 不构建完整内核: 避免 FULL LTO 链接 vmlinux 在 16GB runner 上 OOM(exit 143)。
-          # 删掉残留 Module.symvers -> 模块 __versions 为空(与上游发行 ko 一致, 目标内核放行/跳过 CRC)。
+          # 删掉残留 Module.symvers -> 模块 __versions 为空(与上游发行 ko 一致, 设备内核放行无CRC模块)。
           rm -f Module.symvers
+          # 5.15: 把 UTS_RELEASE 改成作者可加载 ko 的 vermagic 字符串
+          # (定制内核疑似按 vermagic 白名单放行模块; 反正设备对 vermagic 差异是强载,
+          #  与作者一致的 vermagic 无副作用)
+          if [ "${{ matrix.kmi }}" = "android13-5.15" ]; then
+            sed -i -E 's/^#define UTS_RELEASE.*/#define UTS_RELEASE "5.15.197-maybe-dirty"/' \
+              include/generated/utsrelease.h
+            grep UTS_RELEASE include/generated/utsrelease.h
+          fi
+          EXTRA=""
+          if [ "${{ matrix.kmi }}" != "android13-5.15" ]; then EXTRA="LS_SKIP_HELLO=1"; fi
           PATH="$MATCHED_CLANG_BIN:$PATH" make LLVM=1 LLVM_IAS=${{ matrix.ias }} ARCH=arm64 CROSS_COMPILE=${{ matrix.cross }} -j$(nproc) \
             M=${{ github.workspace }}/lsdriver-src/lsdriver \
             KBUILD_MODPOST_WARN=1 CONFIG_EXTENDED_MODVERSIONS=n \
+            $EXTRA \
             modules 2>&1 | tee mod.log
 
       - name: Verify CFI instrumentation in ko
@@ -153,6 +164,8 @@ jobs:
           llvm-nm "$KO" 2>/dev/null | grep -iE "cfi|init_module" | head -14 || true
           echo "-- cfi / versions / note sections --"
           llvm-readelf -S "$KO" 2>/dev/null | grep -iE "cfi|versions|\.note" || true
+          echo "-- modinfo vermagic (5.15 应为 5.15.197-maybe-dirty) --"
+          llvm-readelf -p .modinfo "$KO" 2>/dev/null | grep -a vermagic || true
           echo "-- .note.Linux raw (func note 末4字节应为 01 00 00 00) --"
           llvm-readelf -x .note.Linux "$KO" 2>/dev/null | tail -3 || true
           HW=$(find "${{ github.workspace }}/lsdriver-src" -name "helloworld_test.ko" | head -1)
