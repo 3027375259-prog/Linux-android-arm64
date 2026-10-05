@@ -32,11 +32,11 @@ typedef long (*mod_exitcall_t)(void *reserved);
 
 extern int printk(const char *fmt, ...);
 
-KPM_NAME("hello_kpm")
-KPM_VERSION("0.1.0")
-KPM_LICENSE("GPL v2")
-KPM_AUTHOR("cf_bp")
-KPM_DESCRIPTION("pipeline test: build/load/ctl0/unload")
+KPM_NAME("hello_kpm");
+KPM_VERSION("0.1.0");
+KPM_LICENSE("GPL v2");
+KPM_AUTHOR("cf_bp");
+KPM_DESCRIPTION("pipeline test: build/load/ctl0/unload");
 
 static long hello_init(const char *args, const char *event, void *reserved)
 {
@@ -61,6 +61,6 @@ static long hello_exit(void *reserved)
     return 0;
 }
 
-KPM_INIT(hello_init)
-KPM_CTL0(hello_ctl0)
-KPM_EXIT(hello_exit)
+KPM_INIT(hello_init);
+KPM_CTL0(hello_ctl0);
+KPM_EXIT(hello_exit);
