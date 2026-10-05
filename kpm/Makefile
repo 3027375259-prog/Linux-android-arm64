@@ -3,6 +3,7 @@
 # 参考: bmax121/KernelPatch lkm/kpm/ + Ccccccccvvm/dsp_bypass
 
 CC ?= clang
+LD ?= ld.lld
 ARCHFLAGS := --target=aarch64-linux-gnu -march=armv8-a
 CFLAGS := -O2 -nostdinc -ffreestanding -fno-stack-protector \
           -fno-pic -fno-pie -fno-common -mgeneral-regs-only -Wall
@@ -15,7 +16,7 @@ all: $(KPMS)
 	$(CC) $(ARCHFLAGS) $(CFLAGS) -c -o $@ $<
 
 %.kpm: %.o
-	$(CC) $(ARCHFLAGS) -r -nostdlib -o $@ $^
+	$(LD) -r -o $@ $^
 
 clean:
 	rm -f *.o *.kpm
