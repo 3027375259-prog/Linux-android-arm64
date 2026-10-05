@@ -155,6 +155,12 @@ jobs:
           llvm-readelf -S "$KO" 2>/dev/null | grep -iE "cfi|versions|\.note" || true
           echo "-- .note.Linux raw (func note 末4字节应为 01 00 00 00) --"
           llvm-readelf -x .note.Linux "$KO" 2>/dev/null | tail -3 || true
+          HW=$(find "${{ github.workspace }}/lsdriver-src" -name "helloworld_test.ko" | head -1)
+          if [ -n "$HW" ]; then
+            echo "== helloworld_test.ko: CFI 检查 =="
+            llvm-nm "$HW" 2>/dev/null | grep -iE "cfi" | head -6 || true
+            llvm-readelf -x .note.Linux "$HW" 2>/dev/null | tail -2 || true
+          fi
 
       - name: Collect errors to summary + errors branch (on failure)
         if: failure()
@@ -210,6 +216,8 @@ jobs:
           fi
           mkdir -p out
           cp "$KO" "out/lsdriver-${{ matrix.kmi }}.ko"
+          HW=$(find "${{ github.workspace }}/lsdriver-src" -name "helloworld_test.ko" | head -1)
+          if [ -n "$HW" ]; then cp "$HW" "out/helloworld_test-${{ matrix.kmi }}.ko"; fi
           ls -la out/
 
       - name: Save clang cache
