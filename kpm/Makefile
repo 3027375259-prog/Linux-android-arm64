@@ -3,7 +3,8 @@
 # 参考: bmax121/KernelPatch lkm/kpm/ + Ccccccccvvm/dsp_bypass
 
 CC ?= clang
-LD ?= ld.lld
+# 注意: make 内置 LD=ld, 必须用 := 强制覆盖, 否则宿主 ld 报 "Relocations in generic ELF"
+LD := ld.lld
 ARCHFLAGS := --target=aarch64-linux-gnu -march=armv8-a
 CFLAGS := -O2 -nostdinc -ffreestanding -fno-stack-protector \
           -fno-pic -fno-pie -fno-common -mgeneral-regs-only -Wall
