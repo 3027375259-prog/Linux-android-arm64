@@ -253,3 +253,34 @@ jobs:
         with:
           name: lsdriver-${{ matrix.kmi }}
           path: out/
+
+  kpm:
+    name: Build KPM modules
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang
+
+      - name: Build KPMs
+        run: |
+          cd kpm
+          make CC=clang
+          ls -la *.kpm
+          echo "== 结构自检 =="
+          for k in *.kpm; do
+            echo "--- $k ---"
+            file "$k" || true
+            llvm-readelf -S "$k" 2>/dev/null | grep -aE "kpm" || readelf -S "$k" | grep -aE "kpm" || true
+            llvm-readelf -h "$k" 2>/dev/null | grep -aE "Type|Machine" || readelf -h "$k" | grep -aE "Type|Machine" || true
+          done
+
+      - name: Upload KPM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kpm-modules
+          path: kpm/*.kpm
